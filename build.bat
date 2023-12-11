@@ -1,3 +1,3 @@
 
-cl /Zi /std:c17 main.c
+cl /W4 /WX /Zi /std:c17 main.c
 
