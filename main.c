@@ -174,10 +174,10 @@ u8 g_key_state_last[256] = {0};
 u8 g_mouse_key_state[256] = {0};
 u8 g_mouse_key_state_last[256] = {0};
 float g_mouse_wheel_state = 0;
-float g_mouse_x = 0.0f;
-float g_mouse_y = 0.0f;
-float g_mouse_x_last = 0.0f;
-float g_mouse_y_last = 0.0f;
+float g_mouse_window_x = 0.0f;
+float g_mouse_window_y = 0.0f;
+float g_mouse_window_x_last = 0.0f;
+float g_mouse_window_y_last = 0.0f;
 
 const float CAMERA_SCROLL_SPEED = 0.1f;
 
@@ -187,8 +187,6 @@ Font g_font_8;
 Font g_font_16;
 Font g_font_32;
 Font g_font_64;
-
-
 
 static u8 is_identifier(const enum TokenType t)
 {
@@ -550,6 +548,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         free(temp_bitmap);
 
         FILE* f = fopen("main.c", "rb");
+        //FILE* f = fopen("C:/Users/mfritz/projects/game0/main.cpp", "rb");
         fseek(f, 0L, SEEK_END);
         text_size = ftell(f);
         rewind(f);
@@ -742,7 +741,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             else if(*it == '.') { type = TOKEN_PERIOD;        it++; }
             else
             {
-                assert(0);
+                //assert(0);
+                it++;
+                continue;
             }
 
             // Add the token.
@@ -852,9 +853,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     float camera_vel_x = 0.0f;
     float camera_vel_y = 0.0f;
 
-    float camera_pos_x = 0.0f;
-    float camera_pos_y = 0.0f;
-    float camera_scale = 1.0f;
+    float camera_pos_x = (float)g_screen_width * 0.25f;
+    float camera_pos_y = (float)g_screen_height * 0.25f;
+    float camera_width = (float)g_screen_width;
 
     while(1)
     {
@@ -884,6 +885,53 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         const HDC dc = GetDC(window);
         wglMakeCurrent(dc, g_rc);
 
+        // Get mouse position.
+        {
+            POINT cursor_point;
+            BOOL get_cursor_pos_result = GetCursorPos(&cursor_point);
+            assert(get_cursor_pos_result);
+
+            BOOL client_to_screen_result = ScreenToClient(window, &cursor_point);
+            assert(client_to_screen_result);
+
+            g_mouse_window_x = (float)cursor_point.x;
+            g_mouse_window_y = (float)cursor_point.y;
+        }
+
+
+        camera_width -= g_mouse_wheel_state * CAMERA_SCROLL_SPEED * camera_width;
+        camera_width = max(camera_width, 0.001f);
+
+        float camera_accel_x = 0.0f;
+        float camera_accel_y = 0.0f;
+        camera_vel_x += camera_accel_x;
+        camera_vel_y += camera_accel_y;
+        camera_pos_x += camera_vel_x;
+        camera_pos_y += camera_vel_y;
+        camera_vel_x *= 0.825f;
+        camera_vel_y *= 0.825f;
+
+        const float aspect_ratio = (float)g_screen_width / (float)g_screen_height;
+        const float camera_height = camera_width / aspect_ratio;
+        float mouse_camera_x = ((g_mouse_window_x / g_screen_width) - 0.5f);
+        float mouse_camera_y = ((g_mouse_window_y / g_screen_height) - 0.5f);
+
+        static float mouse_camera_x_last = 0.0f;
+        static float mouse_camera_y_last = 0.0f;
+        float mouse_camera_dx = mouse_camera_x - mouse_camera_x_last;
+        float mouse_camera_dy = mouse_camera_y - mouse_camera_y_last;
+        mouse_camera_x_last = mouse_camera_x;
+        mouse_camera_y_last = mouse_camera_y;
+
+        float mouse_world_x = camera_pos_x + mouse_camera_x * camera_width;
+        float mouse_world_y = camera_pos_y + mouse_camera_y * camera_height;
+
+        if(g_mouse_key_state[0])
+        {
+            camera_pos_x -= mouse_camera_dx * camera_width;
+            camera_pos_y -= mouse_camera_dy * camera_height;
+        }
+
         // Draw
         {
             glViewport(0, 0, g_screen_width, g_screen_height);
@@ -897,12 +945,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             glEnable(GL_DEPTH_TEST);
             glDisable(GL_BLEND);
 
+
             glMatrixMode(GL_PROJECTION);
             glLoadIdentity();
-            glOrtho(0 - camera_pos_x,
-                    g_screen_width*(1.0f/camera_scale) - camera_pos_x,
-                    g_screen_height*(1.0f/camera_scale) - camera_pos_y,
-                    -camera_pos_y,
+            glOrtho(-0.5f * camera_width + camera_pos_x,
+                     0.5f * camera_width + camera_pos_x,
+                     0.5f * camera_height + camera_pos_y,
+                    -0.5f * camera_height + camera_pos_y,
                     -1, 1);
             glMatrixMode(GL_MODELVIEW);
             glLoadIdentity();
@@ -939,102 +988,68 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             glTranslatef(0.0f, 10.0f, 0.0f);
             glScalef(1.0f, 1.0f, 1.0f);
             render_function(text, font, &text_x, &text_y, &brace_depth, entry_function, functions, num_functions, tokens, num_tokens, 0);
-#if 0
-            (void)text_x;
-            (void)text_y;
-            (void)brace_depth;
 
             glMatrixMode(GL_MODELVIEW);
             glLoadIdentity();
-
-            glTranslatef(0.0f, 0.0f, 0.0f);
-            glScalef(1.0f, 1.0f, 1.0f);
-
-            glBindTexture(GL_TEXTURE_2D, 0);
-            glBegin(GL_QUADS);
-            glColor3f(0.8f, 0.0f, 0.0f);
-            glVertex2f(0.0f, 0.0f);
-            glVertex2f(100.0f, 0.0f);
-            glVertex2f(100.0f, 100.0f);
-            glVertex2f(0.0f, 100.0f);
-            glEnd();
-
-            glTranslatef(100.0f, 0.0f, 0.0f);
-            glScalef(1.0f, 1.0f, 1.0f);
+            glTranslatef(mouse_world_x, mouse_world_y, 0.0f);
 
             glBindTexture(GL_TEXTURE_2D, 0);
             glBegin(GL_QUADS);
             glColor3f(0.0f, 0.8f, 0.0f);
-            glVertex2f(0.0f, 0.0f);
-            glVertex2f(100.0f, 0.0f);
-            glVertex2f(100.0f, 100.0f);
-            glVertex2f(0.0f, 100.0f);
+            glVertex2f(-50.0f, -50.0f);
+            glVertex2f( 50.0f, -50.0f);
+            glVertex2f( 50.0f,  50.0f);
+            glVertex2f(-50.0f,  50.0f);
             glEnd();
 
-            glTranslatef(100.0f, 0.0f, 0.0f);
-            glScalef(2.0f, 2.0f, 2.0f);
-
             glBindTexture(GL_TEXTURE_2D, 0);
-            glBegin(GL_QUADS);
-            glColor3f(0.0f, 0.0f, 0.8f);
-            glVertex2f(0.0f, 0.0f);
-            glVertex2f(100.0f, 0.0f);
-            glVertex2f(100.0f, 100.0f);
-            glVertex2f(0.0f, 100.0f);
-            glEnd();
 
-            glTranslatef(100.0f, 0.0f, 0.0f);
-            glScalef(2.0f, 2.0f, 2.0f);
+            glDisable(GL_DEPTH_TEST);
+            glMatrixMode(GL_PROJECTION);
+            glLoadIdentity();
+            glOrtho(0,
+                    g_screen_width,
+                    g_screen_height,
+                    0,
+                    -1, 1);
 
-            glBindTexture(GL_TEXTURE_2D, 0);
-            glBegin(GL_QUADS);
-            glColor3f(0.8f, 0.0f, 0.8f);
-            glVertex2f(0.0f, 0.0f);
-            glVertex2f(100.0f, 0.0f);
-            glVertex2f(100.0f, 100.0f);
-            glVertex2f(0.0f, 100.0f);
-            glEnd();
-
-#endif
+            glMatrixMode(GL_MODELVIEW);
+            glLoadIdentity();
+            glScalef(1.0f, 1.0f, 1.0f);
 
 
-            glBindTexture(GL_TEXTURE_2D, 0);
-        }
+            {
+                float x = 0.0f;
+                float y = 32.0f;
 
-        // Get mouse position.
-        {
-            POINT cursor_point;
-            BOOL get_cursor_pos_result = GetCursorPos(&cursor_point);
-            assert(get_cursor_pos_result);
+                char buf[512];
 
-            BOOL client_to_screen_result = ClientToScreen(window, &cursor_point);
-            assert(client_to_screen_result);
+                x = 0.0f;
+                y += 32.0f;
+                snprintf(buf, sizeof(buf), "camera_width %f\n", (double)camera_width);
+                print(&x, &y, buf, strlen(buf), &g_font_32, WHITE);
 
-            g_mouse_x = (float)cursor_point.x;
-            g_mouse_y = (float)cursor_point.y;
-        }
+                x = 0.0f;
+                y += 32.0f;
+                snprintf(buf, sizeof(buf), "camera_pos (%f, %f)\n", (double)camera_pos_x, (double)camera_pos_y);
+                print(&x, &y, buf, strlen(buf), &g_font_32, WHITE);
 
-        float mouse_dx = g_mouse_x - g_mouse_x_last;
-        float mouse_dy = g_mouse_y - g_mouse_y_last;
+                x = 0.0f;
+                y += 32.0f;
+                snprintf(buf, sizeof(buf), "mouse_window (%f, %f)\n", (double)g_mouse_window_x, (double)g_mouse_window_y);
+                print(&x, &y, buf, strlen(buf), &g_font_32, WHITE);
 
-        float camera_accel_x = 0.0f;
-        float camera_accel_y = 0.0f;
+                x = 0.0f;
+                y += 32.0f;
+                snprintf(buf, sizeof(buf), "mouse_camera (%f, %f)\n", (double)mouse_camera_x, (double)mouse_camera_y);
+                print(&x, &y, buf, strlen(buf), &g_font_32, WHITE);
 
-        camera_scale += g_mouse_wheel_state * CAMERA_SCROLL_SPEED;
+                x = 0.0f;
+                y += 32.0f;
+                snprintf(buf, sizeof(buf), "mouse_world (%f, %f)\n", (double)mouse_world_x, (double)mouse_world_y);
+                print(&x, &y, buf, strlen(buf), &g_font_32, WHITE);
+            }
 
-        camera_vel_x += camera_accel_x;
-        camera_vel_y += camera_accel_y;
-
-        camera_pos_x += camera_vel_x;
-        camera_pos_y += camera_vel_y;
-
-        camera_vel_x *= 0.825f;
-        camera_vel_y *= 0.825f;
-
-        if(g_mouse_key_state[0])
-        {
-            camera_pos_x += mouse_dx;
-            camera_pos_y += mouse_dy;
         }
 
         {
@@ -1042,9 +1057,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             memcpy(g_mouse_key_state_last, g_mouse_key_state, sizeof(g_key_state));
             g_mouse_wheel_state = 0;
 
-            g_mouse_x_last = g_mouse_x;
-            g_mouse_y_last = g_mouse_y;
+            g_mouse_window_x_last = g_mouse_window_x;
+            g_mouse_window_y_last = g_mouse_window_y;
         }
+
 
         glFlush();
 
