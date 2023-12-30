@@ -153,7 +153,7 @@ float g_color_data[] = {
     0.0f, 0.0f, 1.0f,
     0.8f, 0.7f, 0.0f,
     0.8f, 0.4f, 0.2f,
-    0.5f, 0.5f, 0.5f,
+    0.4f, 0.4f, 0.4f,
 };
 
 enum ColorId g_token_colors[NUM_TOKEN_TYPES] = { 0 };
@@ -250,6 +250,15 @@ static void newline(float* cursor_x, float* cursor_y, const Font* font)
     *cursor_y += font->height;
 }
 
+static u8 same_token_name(const Token a, const Token b, const char* const text)
+{
+    if(strncmp(text + a.idx, text + b.idx, a.size) == 0)
+    {
+        return 1;
+    }
+    return 0;
+}
+
 
 
 static void render_function(
@@ -263,8 +272,10 @@ static void render_function(
         const u32 num_fns,
         const Token* tokens,
         const u32 num_tokens,
+        const u32* text_to_token_idx,
         const u32 recurse_depth)
 {
+#if 0 
     u8 found_first_brace = 0;
     u32 fn_idx_to_render = (u32)-1;
     for(u64 token_idx = fn.token_idx_start; token_idx < fn.token_idx_end - 1; token_idx++)
@@ -390,6 +401,136 @@ static void render_function(
         newline(cursor_x, cursor_y, font);
         space(cursor_x, *brace_depth * 4, font);
     }
+#endif
+
+
+    (void)recurse_depth;
+    (void)num_tokens;
+    (void)num_fns;
+    (void)all_fns;
+    (void)brace_depth;
+
+    newline(cursor_x, cursor_y, font);
+
+    u64 fn_to_draw_idx = ~0ULL;
+    const u64 text_start_idx = tokens[fn.token_idx_start].idx;
+    const u64 text_end_idx = tokens[fn.token_idx_end].idx + tokens[fn.token_idx_end].size;
+    for(u64 i = text_start_idx; i < text_end_idx;)
+    {
+        const u64 token_idx = text_to_token_idx[i];
+        if(token_idx < num_tokens)
+        {
+            const Token token = tokens[token_idx];
+            enum ColorId color = g_token_colors[token.type];
+
+            // TODO(mfritz) allow overscan
+            if(token_idx + 1 < num_tokens &&
+               token.type == TOKEN_IDENTIFIER &&
+               tokens[token_idx + 1].type == TOKEN_OPEN_PAREN)
+            {
+
+                for(u64 fn_idx = 0; fn_idx < num_fns; fn_idx++)
+                {
+                    const Function cur_fn = all_fns[fn_idx];
+                    const Token fn_name_token = tokens[cur_fn.name_token_idx];
+                    if(strncmp(text + fn_name_token.idx, text + token.idx, token.size) == 0)
+                    {
+                        fn_to_draw_idx = fn_idx;
+                    }
+                }
+
+                if(fn_to_draw_idx != ~0ULL)
+                {
+                    color = GREEN;
+                }
+                else 
+                {
+                    color = RED;
+                }
+            }
+
+            print(cursor_x, cursor_y, text + token.idx, token.size, font, color);
+
+            if(fn_to_draw_idx != ~0ULL &&
+               token.type == TOKEN_CLOSE_PAREN &&
+               !same_token_name(tokens[fn.name_token_idx], tokens[all_fns[fn_to_draw_idx].name_token_idx], text))
+            {
+                newline(cursor_x, cursor_y, font);
+                glTranslatef(*cursor_x, *cursor_y, 0.0f);
+                glScalef(0.5f, 0.5f, 1.0f);
+                float sub_cursor_x = 0.0f;
+                float sub_cursor_y = 0.0f;
+                s32 sub_brace_depth = 0;
+                render_function(
+                    text,
+                    font,
+                    &sub_cursor_x,
+                    &sub_cursor_y,
+                    &sub_brace_depth,
+                    all_fns[fn_to_draw_idx],
+                    all_fns,
+                    num_fns,
+                    tokens,
+                    num_tokens,
+                    text_to_token_idx,
+                    recurse_depth + 1
+                );
+                glBindTexture(GL_TEXTURE_2D, 0);
+                glBegin(GL_QUADS);
+                glColor3f(0.1f * recurse_depth, 0.1f * recurse_depth, 0.1f * recurse_depth);
+                glVertex2f(0.0f, 0.0f);
+                glVertex2f(10000000.0f, 0.0f);
+                glVertex2f(10000000.0f, sub_cursor_y);
+                glVertex2f(0.0f, sub_cursor_y);
+                glEnd();
+                glScalef(2.0f, 2.0f, 2.0f);
+                glTranslatef(-*cursor_x, -*cursor_y, 0.0f);
+                *cursor_x = 0.0f;
+                //*cursor_y += 0.5f * sub_cursor_y;
+                *cursor_y += sub_cursor_y * 0.5f + font->height;
+
+                fn_to_draw_idx = ~0ULL;
+            }
+
+            if(same_token_name(tokens[fn.name_token_idx], tokens[all_fns[fn_to_draw_idx].name_token_idx], text))
+            {
+                fn_to_draw_idx = ~0ULL;
+            }
+
+
+            i += token.size;
+        }
+        else if(text[i] == '\r' && text[i + 1] == '\n')
+        {
+            newline(cursor_x, cursor_y, font);
+            i += 2;
+        }
+        else if(text[i] == '\r')
+        {
+            newline(cursor_x, cursor_y, font);
+            i++;
+        }
+        else if(text[i] == '\n')
+        {
+            newline(cursor_x, cursor_y, font);
+            i++;
+        }
+        else if(text[i] == ' ')
+        {
+            space(cursor_x, 1, font);
+            i++;
+        }
+        else if(text[i] == '\t')
+        {
+            space(cursor_x, 4, font);
+            i++;
+        }
+        else
+        {
+            print(cursor_x, cursor_y, text + i, 1, font, WHITE);
+            i++;
+        }
+    }
 }
 
 
@@ -501,6 +642,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     u32 num_tokens = 0;
     Token* tokens = (Token*)malloc(sizeof(Token) * 1024*1024);
 
+    // TODO(mfritz) enforce max size
+    u32* text_to_token_idx;
+
     u32 num_functions = 0;
     Function functions[1024];
 
@@ -562,6 +706,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         }
         fclose(f);
 
+        text_to_token_idx = (u32*)malloc(sizeof(u32) * text_size);
+        for(u32 i = 0; i < text_size; i++)
+        {
+            text_to_token_idx[i] = ~0U;
+        }
+
         const char* text_start = text;
         const char* text_end = text + text_size;
         for(char* it = text; it < text_end;)
@@ -583,7 +733,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                 {
                     it++;
                 }
-                it++;
                 type = TOKEN_COMMENT;
             }
             else if(*it == '#')
@@ -602,7 +751,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                         it++;
                     }
                 }
-                it++;
                 type = TOKEN_PREPROCESSOR;
             }
             else if((*it >= 'a' && *it <= 'z') ||
@@ -741,9 +889,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             else if(*it == '.') { type = TOKEN_PERIOD;        it++; }
             else
             {
-                //assert(0);
-                it++;
-                continue;
+                assert(0);
             }
 
             // Add the token.
@@ -751,7 +897,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             tokens[num_tokens].type = type;
             tokens[num_tokens].idx = S;
             tokens[num_tokens].size = E - S;
+
+            for(u64 text_i = S; text_i < E; text_i++)
+            {
+                text_to_token_idx[text_i] = num_tokens;
+            }
+
             num_tokens++;
+
 
             if(it >= text_end)
             {
@@ -762,13 +915,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         for(u32 token_idx = 0; token_idx < num_tokens;)
         {
             u64 fn_token_idx_start = token_idx;
-
-            // Read return type
-            //if(!(tokens[token_idx].type >= TOKEN_KEYWORDS_START && tokens[token_idx].type < TOKEN_KEYWORDS_END))
-            //{
-            //    continue;
-            //}
-            //token_idx++;
 
             const u32 fn_name_token_idx = token_idx;
 
@@ -987,8 +1133,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             glLoadIdentity();
             glTranslatef(0.0f, 10.0f, 0.0f);
             glScalef(1.0f, 1.0f, 1.0f);
-            render_function(text, font, &text_x, &text_y, &brace_depth, entry_function, functions, num_functions, tokens, num_tokens, 0);
+            render_function(text, font, &text_x, &text_y, &brace_depth, entry_function, functions, num_functions, tokens, num_tokens, text_to_token_idx, 0);
 
+            /*
             glMatrixMode(GL_MODELVIEW);
             glLoadIdentity();
             glTranslatef(mouse_world_x, mouse_world_y, 0.0f);
@@ -1003,6 +1150,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             glEnd();
 
             glBindTexture(GL_TEXTURE_2D, 0);
+            */
 
             glDisable(GL_DEPTH_TEST);
             glMatrixMode(GL_PROJECTION);
@@ -1063,6 +1211,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 
         glFlush();
+        glFinish();
 
         SwapBuffers(dc);
 
